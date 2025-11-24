@@ -1,0 +1,40 @@
+# Dockerfile for Dagster Pipeline
+FROM python:3.13-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project files first
+COPY pyproject.toml ./
+COPY src/ ./src/
+
+# Copy data and models directories structure
+RUN mkdir -p /app/data /app/models
+
+# Install uv and dependencies
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    export PATH="/root/.local/bin:$PATH" && \
+    uv sync
+
+ENV PATH="/root/.local/bin:${PATH}"
+
+# Expose Dagster webserver port
+EXPOSE 3000
+
+# Set environment variables
+ENV DAGSTER_HOME=/app/dagster_home
+ENV PYTHONPATH=/app/src:$PYTHONPATH
+
+# Create dagster home directory
+RUN mkdir -p $DAGSTER_HOME
+
+# Command to run Dagster
+CMD ["uv", "run", "dagster", "dev", "-h", "0.0.0.0", "-p", "3000"]
