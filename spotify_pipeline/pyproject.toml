@@ -10,6 +10,8 @@ dependencies = [
     "xgboost>=3.1.1",
     "kagglehub>=0.3.13",
     "numpy>=1.26.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
 ]
 
 [dependency-groups]
