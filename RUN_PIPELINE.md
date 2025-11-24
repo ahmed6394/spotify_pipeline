@@ -31,11 +31,13 @@
 3. spotify_features      → One-hot encodes genre, prepares features
 4. train_test_split      → Splits into train (80%) / test (20%)
 5. xgboost_model         → Trains model, saves to models/xgboost_model.pkl
+6. model_predictions     → Makes predictions on test data, saves to models/test_predictions.csv
 ```
 
 ## Output
 
 - **Trained Model**: `models/xgboost_model.pkl`
+- **Test Predictions**: `models/test_predictions.csv` (with actual, predicted, probabilities)
 - **Metrics**: Visible in Dagster UI (accuracy, precision, recall)
 
 ## Load the Trained Model

@@ -7,26 +7,25 @@ from . import data_assets, model_assets
 from .resources import FileConfig
 
 
+def _find_project_root() -> Path:
+    """Find the Spotify project root directory."""
+    current = Path.cwd()
+    
+    # Try to find Spotify folder
+    for parent in [current, current.parent, current.parent.parent]:
+        if parent.name == "Spotify" or (parent / "data").exists():
+            return parent
+    
+    return current.parent if current.name == "spotify_pipeline" else current
+
+
 # Load all assets
 all_assets = load_assets_from_modules([data_assets, model_assets])
 
-# Get the storage path - try multiple locations
-possible_storage_paths = [
-    Path("data/dagster_storage"),
-    Path("../data/dagster_storage"),
-    Path(__file__).parent.parent.parent.parent.parent / "data" / "dagster_storage",
-]
-
-storage_dir = None
-for path in possible_storage_paths:
-    resolved = path.resolve()
-    if resolved.parent.exists():
-        storage_dir = resolved
-        storage_dir.mkdir(parents=True, exist_ok=True)
-        break
-
-if storage_dir is None:
-    storage_dir = Path("dagster_storage")
+# Get the storage path
+project_root = _find_project_root()
+storage_dir = project_root / "data" / "dagster_storage"
+storage_dir.mkdir(parents=True, exist_ok=True)
 
 # Define the pipeline
 defs = Definitions(

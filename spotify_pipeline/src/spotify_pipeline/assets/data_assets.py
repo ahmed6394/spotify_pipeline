@@ -32,6 +32,18 @@ class FeatureSet:
 # 1. Load raw data
 # -----------------------------------------------------------
 
+def _find_project_root() -> Path:
+    """Find the Spotify project root directory."""
+    current = Path.cwd()
+    
+    # Try to find Spotify folder
+    for parent in [current, current.parent, current.parent.parent]:
+        if parent.name == "Spotify" or (parent / "data").exists():
+            return parent
+    
+    return current.parent if current.name == "spotify_pipeline" else current
+
+
 @asset(
     required_resource_keys={"file_config"},
     description="Load the raw Spotify CSV from data folder"
@@ -40,40 +52,39 @@ def raw_spotify_csv(context) -> Output[pd.DataFrame]:
     """Load Spotify data from CSV file in data/ folder."""
     import os
     
-    # Try multiple possible locations
-    possible_paths = [
-        Path("data"),  # If running from project root
-        Path("../data"),  # If running from spotify_pipeline/
-        Path(__file__).parent.parent.parent.parent.parent / "data",  # Absolute from this file
-        Path.cwd() / "data",  # Current working directory
-        Path.cwd().parent / "data",  # Parent of current working directory
-    ]
+    project_root = _find_project_root()
+    data_dir = project_root / "data"
     
-    data_dir = None
-    for path in possible_paths:
-        resolved = path.resolve()
-        context.log.info(f"Trying path: {resolved}")
-        if resolved.exists() and any(resolved.glob("*.csv")):
-            data_dir = resolved
-            break
+    context.log.info(f"Project root: {project_root}")
+    context.log.info(f"Looking for CSV in: {data_dir}")
     
-    if data_dir is None:
+    if not data_dir.exists():
         raise FileNotFoundError(
-            f"No CSV file found. Tried paths:\n" + 
-            "\n".join(f"  - {p.resolve()}" for p in possible_paths) +
-            "\n\nPlease ensure spotify_data.csv is in the data/ folder."
+            f"Data directory not found at: {data_dir}\n"
+            f"Project root detected as: {project_root}"
         )
     
-    context.log.info(f"Found data directory: {data_dir}")
+    # Find CSV files (excluding dagster_output)
+    csv_files = [f for f in data_dir.glob("*.csv") if "dagster_output" not in str(f)]
     
-    # Find the first CSV file
-    csv_files = list(data_dir.glob("*.csv"))
+    if not csv_files:
+        raise FileNotFoundError(
+            f"No CSV file found in {data_dir}. "
+            "Please ensure spotify_data.csv is in the data/ folder."
+        )
+    
     csv_path = csv_files[0]
     context.log.info(f"Loading data from: {csv_path}")
     
     df = pd.read_csv(csv_path)
-    
     context.log.info(f"Loaded {len(df)} rows with {len(df.columns)} columns")
+    
+    # Save a readable copy for inspection
+    output_dir = data_dir / "dagster_output"
+    output_dir.mkdir(exist_ok=True)
+    output_path = output_dir / "01_raw_data.csv"
+    df.to_csv(output_path, index=False)
+    context.log.info(f"✅ Saved readable copy to: {output_path}")
     
     return Output(
         df,
@@ -81,6 +92,7 @@ def raw_spotify_csv(context) -> Output[pd.DataFrame]:
             "rows": len(df),
             "columns": len(df.columns),
             "source": str(csv_path),
+            "readable_copy": str(output_path),
         },
     )
 
@@ -137,12 +149,21 @@ def spotify_cleaned(context, df: pd.DataFrame) -> Output[pd.DataFrame]:
     positive_pct = df['verdict'].mean() * 100
     context.log.info(f"Positive class (popular): {positive_pct:.2f}%")
     
+    # Save readable copy
+    project_root = _find_project_root()
+    output_dir = project_root / "data" / "dagster_output"
+    output_dir.mkdir(exist_ok=True)
+    output_path = output_dir / "02_cleaned_data.csv"
+    df.to_csv(output_path, index=False)
+    context.log.info(f"✅ Saved readable copy to: {output_path}")
+    
     return Output(
         df,
         metadata={
             "rows": len(df),
             "columns": len(df.columns),
             "positive_class_pct": float(positive_pct),
+            "readable_copy": str(output_path),
         },
     )
 
@@ -188,6 +209,24 @@ def spotify_features(context, df: pd.DataFrame) -> Output[FeatureSet]:
     context.log.info(f"Features shape: {features.shape}")
     context.log.info(f"Feature columns: {list(features.columns)}")
     
+    # Save readable copies
+    project_root = _find_project_root()
+    output_dir = project_root / "data" / "dagster_output"
+    output_dir.mkdir(exist_ok=True)
+    
+    features_path = output_dir / "03_features.csv"
+    target_path = output_dir / "03_target.csv"
+    feature_names_path = output_dir / "03_feature_names.txt"
+    
+    features.to_csv(features_path, index=False)
+    target.to_csv(target_path, index=False, header=True)
+    
+    # Save feature names list
+    with open(feature_names_path, 'w') as f:
+        f.write('\n'.join(features.columns.tolist()))
+    
+    context.log.info(f"✅ Saved readable copies to: {output_dir}")
+    
     feature_set = FeatureSet(features=features, target=target)
     
     return Output(
@@ -196,6 +235,8 @@ def spotify_features(context, df: pd.DataFrame) -> Output[FeatureSet]:
             "feature_count": len(features.columns),
             "rows": len(features),
             "feature_names": list(features.columns)[:10],  # First 10 features
+            "readable_features": str(features_path),
+            "readable_target": str(target_path),
         },
     )
 
@@ -224,6 +265,18 @@ def train_test_split(context, feature_set: FeatureSet) -> Output[Dict[str, Any]]
     context.log.info(f"Train positive %: {y_train.mean() * 100:.2f}%")
     context.log.info(f"Test positive %: {y_test.mean() * 100:.2f}%")
     
+    # Save readable copies
+    project_root = _find_project_root()
+    output_dir = project_root / "data" / "dagster_output"
+    output_dir.mkdir(exist_ok=True)
+    
+    X_train.to_csv(output_dir / "04_X_train.csv", index=False)
+    X_test.to_csv(output_dir / "04_X_test.csv", index=False)
+    y_train.to_csv(output_dir / "04_y_train.csv", index=False, header=True)
+    y_test.to_csv(output_dir / "04_y_test.csv", index=False, header=True)
+    
+    context.log.info(f"✅ Saved readable copies to: {output_dir}")
+    
     split_data = {
         "X_train": X_train,
         "X_test": X_test,
@@ -239,5 +292,6 @@ def train_test_split(context, feature_set: FeatureSet) -> Output[Dict[str, Any]]
             "features": X_train.shape[1],
             "train_positive_pct": float(y_train.mean() * 100),
             "test_positive_pct": float(y_test.mean() * 100),
+            "readable_files": str(output_dir),
         },
     )
